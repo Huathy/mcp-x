@@ -55,12 +55,15 @@ const helpText = `mcp-x: 通用数据库 MCP Server
   危险命令拦截  : FLUSHALL / FLUSHDB / CONFIG / KEYS 等
   DELETE/UPDATE 缺 WHERE 自动拦截；max_rows + 查询超时保护
 
-工具一览（共 22 个，按数据源类型启用）:
+工具一览（共 22+8 个，按数据源/功能启用）:
   通用: db_list, db_ping
   SQL : db_query, db_execute, db_tables, db_schema
   Redis: redis_get/set/del/keys/type/ttl
   ES  : doc_list_indices, doc_search, doc_get, doc_index, doc_delete
   MinIO: obj_list_buckets, obj_list, obj_get, obj_put, obj_delete
+  文档转换(docconv, 需 config.docconv.enabled):
+    excel_to_md, md_to_excel, pdf_to_md, docx_to_md, md_to_docx, md_to_pdf
+    Windows+Office/WPS: word_to_pdf, pdf_to_word(实验性)
 
 更多信息: https://github.com/yourname/mcp-x
 `

@@ -76,3 +76,37 @@ func TestEffectiveSafetyNoDSConfig(t *testing.T) {
 		t.Errorf("QueryTimeout = %v, want 30s (global fallback)", got.QueryTimeout.Std())
 	}
 }
+
+func TestDocconvDefaults(t *testing.T) {
+	cfg := &Config{}
+	cfg.applyDefaults()
+	if cfg.Docconv.Workdir != "./data/docconv" {
+		t.Errorf("Workdir = %q, want ./data/docconv", cfg.Docconv.Workdir)
+	}
+	if cfg.Docconv.MaxFileSizeMB != 50 {
+		t.Errorf("MaxFileSizeMB = %d, want 50", cfg.Docconv.MaxFileSizeMB)
+	}
+	if cfg.Docconv.Com.ProgID != "auto" {
+		t.Errorf("Com.ProgID = %q, want auto", cfg.Docconv.Com.ProgID)
+	}
+	if cfg.Docconv.Com.Timeout.Std() != 60*time.Second {
+		t.Errorf("Com.Timeout = %v, want 60s", cfg.Docconv.Com.Timeout.Std())
+	}
+}
+
+func TestDocconvExplicit(t *testing.T) {
+	cfg := &Config{
+		Docconv: DocconvConfig{
+			Workdir:        "/data/x",
+			MaxFileSizeMB:  10,
+			Com: ComConfig{ProgID: "Word.Application", Timeout: Duration(120 * time.Second)},
+		},
+	}
+	cfg.applyDefaults()
+	if cfg.Docconv.Workdir != "/data/x" {
+		t.Errorf("explicit Workdir overridden: %q", cfg.Docconv.Workdir)
+	}
+	if cfg.Docconv.Com.ProgID != "Word.Application" {
+		t.Errorf("explicit ProgID overridden: %q", cfg.Docconv.Com.ProgID)
+	}
+}

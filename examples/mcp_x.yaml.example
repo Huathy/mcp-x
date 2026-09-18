@@ -98,3 +98,11 @@ datasources:
     bucket: "mcp-x"
     safety:
       mode: "read-write"
+
+docconv:
+  enabled: true
+  workdir: "./data/docconv"
+  max_file_size_mb: 50
+  com:
+    prog_id: "auto"          # auto = probe Word.Application / kwps / wps
+    timeout: 60s

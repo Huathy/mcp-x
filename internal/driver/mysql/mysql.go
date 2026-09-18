@@ -124,17 +124,18 @@ func (d *MySQLDriver) DescribeTable(ctx context.Context, table string) (*driver.
 
 	schema := &driver.TableSchema{Table: table}
 	for rows.Next() {
-		var field, typ, nullness, keyStr, defStr, extra string
-		if err := rows.Scan(&field, &typ, &nullness, &keyStr, &defStr, &extra); err != nil {
-			return nil, fmt.Errorf("describe scan: %w", err)
-		}
-		schema.Columns = append(schema.Columns, driver.ColumnInfo{
-			Name:     field,
-			Type:     typ,
-			Nullable: nullness,
-			Key:      keyStr,
-			Default:  defStr,
-		})
+	var field, typ, nullness, keyStr, extra string
+	var defStr sql.NullString
+	if err := rows.Scan(&field, &typ, &nullness, &keyStr, &defStr, &extra); err != nil {
+		return nil, fmt.Errorf("describe scan: %w", err)
+	}
+	schema.Columns = append(schema.Columns, driver.ColumnInfo{
+		Name:     field,
+		Type:     typ,
+		Nullable: nullness,
+		Key:      keyStr,
+		Default:  defStr.String,
+	})
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err

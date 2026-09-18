@@ -12,10 +12,11 @@ import (
 )
 
 type Server struct {
-	server *mcp.Server
-	mgr    *datasource.Manager
-	logger *slog.Logger
-	cfg    *config.Config
+	server   *mcp.Server
+	mgr      *datasource.Manager
+	logger   *slog.Logger
+	cfg      *config.Config
+	comProgID string
 }
 
 func NewServer(name, version string, mgr *datasource.Manager, cfg *config.Config, logger *slog.Logger) (*Server, error) {
@@ -50,6 +51,7 @@ func (s *Server) registerTools() error {
 	s.registerRedisTools()
 	s.registerDocTools()
 	s.registerObjectTools()
+	s.registerDocconvTools()
 
 	return nil
 }

@@ -12,6 +12,19 @@ type Config struct {
 	Server      ServerConfig       `yaml:"server"`
 	Safety      SafetyConfig       `yaml:"safety"`
 	DataSources []DataSourceConfig `yaml:"datasources"`
+	Docconv     DocconvConfig      `yaml:"docconv"`
+}
+
+type DocconvConfig struct {
+	Enabled       bool      `yaml:"enabled"`
+	Workdir       string    `yaml:"workdir"`
+	MaxFileSizeMB int       `yaml:"max_file_size_mb"`
+	Com           ComConfig `yaml:"com"`
+}
+
+type ComConfig struct {
+	ProgID  string   `yaml:"prog_id"`
+	Timeout Duration `yaml:"timeout"`
 }
 
 type ServerConfig struct {
@@ -102,6 +115,18 @@ func (c *Config) applyDefaults() {
 	}
 	if c.Safety.BlockedCommands == nil {
 		c.Safety.BlockedCommands = []string{"FLUSHALL", "FLUSHDB", "CONFIG", "SHUTDOWN", "KEYS", "BGREWRITEAOF", "BGSAVE"}
+	}
+	if c.Docconv.Workdir == "" {
+		c.Docconv.Workdir = "./data/docconv"
+	}
+	if c.Docconv.MaxFileSizeMB == 0 {
+		c.Docconv.MaxFileSizeMB = 50
+	}
+	if c.Docconv.Com.ProgID == "" {
+		c.Docconv.Com.ProgID = "auto"
+	}
+	if c.Docconv.Com.Timeout == 0 {
+		c.Docconv.Com.Timeout = Duration(60 * time.Second)
 	}
 	for i := range c.DataSources {
 		ds := &c.DataSources[i]
