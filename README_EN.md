@@ -2,10 +2,13 @@
 
 A universal database MCP Server that lets AI coding assistants (kilocode / cursor / claude code, etc.) operate databases safely via the MCP protocol.
 
+> Predecessor: mcp-dbx (renamed to mcp-x)
+
 ## Features
 
-- **MySQL + Redis** out of the box; architecture extensible to domestic databases (OceanBase / DM / Kingbase)
-- **Safety layer**: read-only by default; explicit config required for writes; dangerous keyword interception; DELETE/UPDATE without WHERE blocked; row limit + query timeout
+- **Multiple databases out of the box**: MySQL, PostgreSQL, Dameng, Kingbase, Redis, Elasticsearch, MongoDB, MinIO object storage
+- **Document conversion**: Excel↔Markdown, PDF↔Markdown, DOCX↔Markdown and other format conversions (explicitly enabled via config)
+- **Safety layer**: read-only by default; explicit config required for writes; dangerous keyword interception; DELETE/UPDATE without WHERE blocked; row limit + query timeout; object storage bucket/key validation
 - **stdio transport**, direct local connection for kilocode / cursor
 - **YAML config**, multi-datasource named management, routing by name
 - **Single binary**, zero-dependency deployment
@@ -58,6 +61,33 @@ datasources:
     safety:
       mode: "read-only"     # force read-only for this datasource
 
+  - name: "main-postgres"
+    driver: "postgres"
+    dsn: "postgres://user:password@127.0.0.1:5432/mydb?sslmode=disable"
+    max_open_conns: 10
+    max_idle_conns: 5
+    conn_max_lifetime: 5m
+    safety:
+      mode: "read-only"
+
+  - name: "main-kingbase"
+    driver: "kingbase"
+    dsn: "postgres://system:123456@127.0.0.1:54321/test?sslmode=disable"
+    max_open_conns: 10
+    max_idle_conns: 5
+    conn_max_lifetime: 5m
+    safety:
+      mode: "read-only"
+
+  - name: "main-dameng"
+    driver: "dameng"
+    dsn: "dm://SYSDBA:SYSDBA@127.0.0.1:5236?autoCommit=true"
+    max_open_conns: 10
+    max_idle_conns: 5
+    conn_max_lifetime: 5m
+    safety:
+      mode: "read-only"
+
   - name: "cache-redis"
     driver: "redis"
     addr: "127.0.0.1:6379"
@@ -66,18 +96,75 @@ datasources:
     pool_size: 10
     safety:
       mode: "read-write"
+
+  - name: "main-es"
+    driver: "elasticsearch"
+    addrs:
+      - "http://127.0.0.1:9200"
+    username: ""
+    password: ""
+    index_name: "my-index"
+    safety:
+      mode: "read-only"
+
+  - name: "main-mongo"
+    driver: "mongodb"
+    dsn: "mongodb://user:password@127.0.0.1:27017/mydb"
+    database: "mydb"
+    bucket: "documents"
+    pool_size: 10
+    safety:
+      mode: "read-only"
+
+  - name: "main-minio"
+    driver: "minio"
+    endpoint: "127.0.0.1:9000"
+    access_key: "<your-access-key>"
+    secret_key: "<your-secret-key>"
+    use_ssl: false
+    region: "us-east-1"
+    bucket: "mcp-x"
+    safety:
+      mode: "read-write"
+
+docconv:
+  enabled: true
+  workdir: "./data/docconv"
+  max_file_size_mb: 50
+  com:
+    prog_id: "auto"          # auto = probe Word.Application / kwps / wps
+    timeout: 60s
 ```
 
 ### 3. Manual Verification
 
 ```bash
+# Show help
+./bin/mcp-x --help
+
 # Start and send MCP JSON-RPC test
 echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}}}' | ./bin/mcp-x --config ./examples/mcp-x.yaml.example
 ```
 
 A normal response returns `initialize` result with server capabilities.
 
-### 4. Connect to AI Coding Assistant
+### 4. Document Conversion (Optional)
+
+Document conversion must be explicitly enabled in config:
+
+```yaml
+docconv:
+  enabled: true
+  workdir: "./data/docconv"     # temp directory
+  max_file_size_mb: 50          # max file size
+  com:
+    prog_id: "auto"             # auto = probe Word.Application / kwps / wps
+    timeout: 60s                 # COM call timeout
+```
+
+Windows requires WPS or Microsoft Office; Linux requires LibreOffice configuration.
+
+### 5. Connect to AI Coding Assistant
 
 #### kilocode
 
@@ -114,7 +201,7 @@ Restart the IDE, then AI can directly call database tools.
 
 ## Tools
 
-12 tools total:
+30 tools total:
 
 ### Common Tools
 
@@ -123,7 +210,7 @@ Restart the IDE, then AI can directly call database tools.
 | `db_list` | List all configured datasources and status |
 | `db_ping` | Health check, returns latency |
 
-### SQL Tools (MySQL / OceanBase / DM / Kingbase)
+### SQL Tools (MySQL / PostgreSQL / Dameng / Kingbase)
 
 | Tool | Description |
 |------|-------------|
@@ -142,6 +229,39 @@ Restart the IDE, then AI can directly call database tools.
 | `redis_keys` | SCAN keys (non-blocking, max 100) |
 | `redis_type` | Check key type |
 | `redis_ttl` | Check TTL |
+
+### Document Store Tools (Elasticsearch / MongoDB)
+
+| Tool | Description |
+|------|-------------|
+| `doc_list_indices` | List all indices/collections |
+| `doc_search` | Full-text search |
+| `doc_get` | Get document by ID |
+| `doc_index` | Index/insert document |
+| `doc_delete` | Delete document |
+
+### Object Store Tools (MinIO / S3 compatible)
+
+| Tool | Description |
+|------|-------------|
+| `obj_list_buckets` | List all buckets |
+| `obj_list` | List objects in bucket |
+| `obj_get` | Download object |
+| `obj_put` | Upload object |
+| `obj_delete` | Delete object |
+
+### Document Conversion Tools (docconv)
+
+| Tool | Description |
+|------|-------------|
+| `excel_to_md` | Excel → Markdown |
+| `md_to_excel` | Markdown → Excel |
+| `pdf_to_md` | PDF → Markdown |
+| `docx_to_md` | DOCX → Markdown |
+| `md_to_docx` | Markdown → DOCX |
+| `md_to_pdf` | Markdown → PDF |
+| `word_to_pdf` | Word → PDF |
+| `pdf_to_word` | PDF → Word |
 
 ## Configuration
 
@@ -183,6 +303,11 @@ datasources:
 | Full table scan | max_rows limit + query timeout |
 | Redis KEYS blocking | Forced SCAN replacement, KEYS command blocked |
 | Privilege escalation | GRANT/REVOKE blocked by default |
+| MinIO large object read | 1MB limit to prevent memory overflow |
+| MongoDB URI injection | Connection URI credentials auto URL-escaped |
+| Elasticsearch injection | Query and document body JSON format validation |
+| Object storage path traversal | bucket/key validation + bucket whitelist |
+| MongoDB wildcard abuse | Keys search supports glob wildcards to prevent full collection scan |
 
 Safety layer call chain:
 
@@ -192,16 +317,38 @@ tool handler
   -> safety.CheckSQL() / CheckRedisCommand() # dangerous keyword interception
   -> DELETE/UPDATE WHERE detection
   -> driver.Query/Execute(ctxWithTimeout)     # timeout control
+  -> object storage bucket/key validation
+  -> MinIO object size limit (1MB)
 ```
 
 ## Test Environment
 
-Start MySQL + Redis via local Docker:
+Start MySQL + PostgreSQL + Redis + Elasticsearch + MinIO + MongoDB via local Docker:
 
 ```bash
+# MySQL
 docker run -d --name mysql-test -e MYSQL_ROOT_PASSWORD=test -p 3306:3306 mysql:8
+
+# PostgreSQL
+docker run -d --name postgres-test -e POSTGRES_PASSWORD=test -p 5432:5432 postgres:15
+
+# Redis
 docker run -d --name redis-test -p 6379:6379 redis:7
+
+# Elasticsearch
+docker run -d --name es-test -p 9200:9200 -e "discovery.type=single-node" elasticsearch:8.11.0
+
+# MinIO
+docker run -d --name minio-test -p 9000:9000 -p 9001:9001 -e MINIO_ROOT_USER=minioadmin -e MINIO_ROOT_PASSWORD=minioadmin minio/minio server /data --console-address ":9001"
+
+# MongoDB
+docker run -d --name mongo-test -p 27017:27017 mongo:7
 ```
+
+### Domestic Databases
+
+- **Dameng DM8**: Download Dameng official Docker image, port 5236
+- **KingbaseES**: Download Kingbase official Docker image, port 54321
 
 ## UTF8 Multi-language Read/Write Verification
 
@@ -214,25 +361,25 @@ MySQL DSN uses `charset=utf8mb4`, fully supporting multi-language UTF8 read/writ
 | 830 | threshold | Y | NULL |
 | 831 | timeout | N | connection timed out after 30s |
 | 832 | offline | N | device heartbeat lost |
-| 835 | threshold | N | 娓╁害瓒呰繃闃堝€?0搴?|
-| 836 | offline | N | 璁惧鎺夌嚎锛氬績璺宠秴鏃舵湭鏀跺埌 |
-| 837 | timeout | N | 缃戝叧杩炴帴瓒呮椂锛氱瓑寰?0绉掓棤鍝嶅簲 |
-| 840 | threshold | N | 娓╁害銇屻仐銇嶃亜鍊?0搴︺倰瓒呫亪銇俱仐銇?|
-| 841 | offline | N | 銉囥儛銈ゃ偣銈儠銉┿偆銉筹細銉忋兗銉堛儞銉笺儓銇屻偪銈ゃ儬銈偊銉堛仐銇俱仐銇?|
-| 842 | timeout | N | 銈层兗銉堛偊銈с偆鎺ョ稓銈裤偆銉犮偄銈︺儓锛?0绉掑繙绛斻仾銇?|
-| 843 | threshold | N | 鞓弰臧€ 鞛勱硠臧?80霃勲ゼ 齑堦臣頄堨姷雼堧嫟 |
-| 844 | offline | N | 鞛レ箻 鞓ろ攧霛检澑锛氻晿韸鸽箘韸?鞁滉皠 齑堦臣 |
-| 845 | timeout | N | 瓴岇澊韸胳洦鞚?鞐瓣舶 鞁滉皠 齑堦臣锛?0齑?鞚戨嫷 鞐嗢潓 |
-| 846 | config | N | 妲嬫垚銈ㄣ儵銉硷細銈汇兂銈点兗銈层偆銉炽儜銉┿儭銉笺偪銇屼笉瓒?|
-| 847 | config | N | 甑劚 鞓る锛氺劶靹?鞚措摑 毵り皽氤€靾?雸勲澖 |
+| 835 | threshold | N | 温度超过阈值80度 |
+| 836 | offline | N | 设备掉线：心跳超时未收到 |
+| 837 | timeout | N | 网关连接超时：等待30秒无响应 |
+| 840 | threshold | N | 温度が上昇値80度を超えました |
+| 841 | offline | N | デバイスハートビート：サーバーから応答なし |
+| 842 | timeout | N | タイムアウト発生：30秒遅延しました |
+| 843 | threshold | N | 온도가 한계값 80도를 초과했습니다 |
+| 844 | offline | N | 장치 연결 끊김：하트비트 응답 없음 |
+| 845 | timeout | N | 게이트웨이 시간 초과：30秒 지연 후 종료 |
+| 846 | config | N | パラメータエラー：コンフィグバリデーションに不合格 |
+| 847 | config | N | 配置错误：参数校验未通过 |
 
 ### Supported Languages
 
 - English: `connection timed out after 30s`
-- Chinese: `娓╁害瓒呰繃闃堝€?0搴
-- Japanese: `娓╁害銇屻仐銇嶃亜鍊?0搴︺倰瓒呫亪銇俱仐銇焋
-- Korean: `鞓弰臧€ 鞛勱硠臧?80霃勲ゼ 齑堦臣頄堨姷雼堧嫟`
-- Mixed punctuation: `鞛レ箻 鞓ろ攧霛检澑锛氻晿韸鸽箘韸?鞁滉皠 齑堦臣` (fullwidth colon)
+- Chinese: `温度超过阈值80度`
+- Japanese: `温度が上昇値80度を超えました`
+- Korean: `온도가 한계값 80도를 초과했습니다`
+- Mixed punctuation: `장치 연결 끊김：하트비트 응답 없음` (fullwidth colon)
 
 ### Key Points
 
@@ -243,27 +390,48 @@ MySQL DSN uses `charset=utf8mb4`, fully supporting multi-language UTF8 read/writ
 ## Project Structure
 
 ```
-mcp_dbx/
-鈹溾攢鈹€ cmd/mcp-x/main.go           鈥?entry point
-鈹溾攢鈹€ internal/
-鈹?  鈹溾攢鈹€ config/                   鈥?YAML config parsing
-鈹?  鈹溾攢鈹€ driver/                   鈥?Driver interface + MySQL/Redis impl
-鈹?  鈹溾攢鈹€ datasource/               鈥?datasource manager
-鈹?  鈹溾攢鈹€ safety/                   鈥?safety layer
-鈹?  鈹斺攢鈹€ mcp/                      鈥?MCP server + tool handlers
-鈹溾攢鈹€ examples/                     鈥?config examples
-鈹溾攢鈹€ docs/plans/                   鈥?design docs
-鈹斺攢鈹€ Makefile
+mcp-x/
+├── cmd/mcp-x/main.go           # entry point
+├── internal/
+│   ├── config/                 # YAML config parsing
+│   ├── driver/                 # Driver interface + multi-database implementations
+│   │   ├── mysql/              # MySQL
+│   │   ├── pglike/             # PostgreSQL compatibility layer
+│   │   ├── postgres/           # PostgreSQL
+│   │   ├── kingbase/           # KingbaseES
+│   │   ├── dameng/             # Dameng DM8
+│   │   ├── redis/              # Redis
+│   │   ├── elasticsearch/      # Elasticsearch
+│   │   ├── mongodb/            # MongoDB
+│   │   └── minio/              # MinIO object storage
+│   ├── datasource/             # datasource manager
+│   ├── safety/                 # safety layer
+│   ├── docconv/                # document conversion module
+│   └── mcp/                    # MCP server + tool handlers
+├── examples/                   # config examples
+├── docs/                       # design docs
+└── Makefile
 ```
 
 ## Extending New Databases
 
-1. Write `internal/driver/xxx/xxx.go` implementing `Driver` or `NoSQLDriver` interface
+1. Write `internal/driver/xxx/xxx.go` implementing `Driver`, `DocStoreDriver` or `ObjectStoreDriver` interface
 2. In `init()`, call `driver.Register("xxx", ...)`
 3. Import in `cmd/mcp-x/main.go`: `_ "github.com/yourname/mcp-x/internal/driver/xxx"`
 4. Add datasource in config, `driver: xxx`
 
 **MySQL-protocol-compatible databases** (OceanBase / TiDB) can reuse the MySQL driver directly; just change the driver label.
+
+## Extending Document Formats
+
+Document conversion module can be explicitly enabled via `docconv.enabled`, supporting:
+- Excel↔Markdown
+- PDF↔Markdown
+- DOCX↔Markdown
+- Markdown→Excel/PDF/DOCX
+- Word→PDF / PDF→Word
+
+Additional dependencies: go-ole (COM automation), excelize, goldmark, gopdf, ledongthuc/pdf
 
 ## Development
 
@@ -274,15 +442,21 @@ make run       # build + run
 make clean     # clean
 ```
 
+### Test Coverage
+
+- 8 Drivers (MySQL, PostgreSQL, Kingbase, Dameng, Redis, Elasticsearch, MongoDB, MinIO)
+- 30 MCP tools
+- 66 test cases (including 22 document conversion tests)
+
 ## Roadmap
 
 | Version | Content |
 |---------|---------|
-| v0.1.0 | MySQL + Redis + safety layer, stdio transport 鉁?|
-| v0.2.0 | OceanBase + Kingbase support, audit log |
-| v0.3.0 | DM8 support |
-| v0.4.0 | HTTP/SSE transport |
-| v0.5.0 | Connection pool monitoring, slow query log |
+| v0.1.0 | MySQL + Redis + safety layer, stdio transport ✅ |
+| v0.2.0 | PostgreSQL, Dameng, Kingbase, Elasticsearch, MinIO, MongoDB support ✅ |
+| v0.3.0 | Document conversion module (Excel↔Markdown, PDF↔Markdown, DOCX↔Markdown) ✅ |
+| v0.4.0 | HTTP/SSE transport, connection pool monitoring, slow query log |
+| v0.5.0 | Audit log, more domestic database support |
 
 ## Tech Stack
 
@@ -290,4 +464,12 @@ make clean     # clean
 - [MCP Go SDK](https://github.com/modelcontextprotocol/go-sdk) v1.7.0 (official SDK)
 - [go-sql-driver/mysql](https://github.com/go-sql-driver/mysql) v1.10.1
 - [go-redis/v9](https://github.com/redis/go-redis) v9.22.0
+- [elastic/go-elasticsearch](https://github.com/elastic/go-elasticsearch) v8.15.0
+- [minio/minio-go](https://github.com/minio/minio-go) v7.0.70
+- [mongodb/mongo-go-driver](https://github.com/mongodb/mongo-go-driver) v1.17.1
+- [lib/pq](https://github.com/lib/pq) v1.10.9 (PostgreSQL)
+- [excelize](https://github.com/xuri/excelize/v2) v2.8.0
+- [goldmark](https://github.com/yuin/goldmark) v1.7.4
+- [gopdf](https://github.com/phpdave11/gofpdf) v1.4.3
+- [ledongthuc/pdf](https://github.com/ledongthuc/pdf) v0.8.0
 - `log/slog` standard library structured logging
