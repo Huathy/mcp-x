@@ -106,3 +106,57 @@ docconv:
   com:
     prog_id: "auto"          # auto = probe Word.Application / kwps / wps
     timeout: 60s
+
+# Windows desktop control (mouse / keyboard / screenshot).
+# Disabled by default: this grants an AI the ability to move the real cursor and
+# press real keys. Turn it on only on a machine where that is acceptable.
+#
+# Safety model: the AI never sends an absolute point. It sends the window
+# origin (window_x/window_y) plus an offset inside the window (mouse_x/mouse_y),
+# and the service re-reads the real window from Windows. A call is refused when
+# the window moved, is minimized, is covered, is not focused, or the point falls
+# outside the window — so a stale observation cannot become a stray click.
+#
+# Recommended workflow for the AI:
+#   1. desktop_screen_info        -> screen size + fingerprint (pass as screen_token)
+#   2. desktop_list_windows       -> pick a window, copy its title and x/y verbatim
+#   3. <tool> with dry_run=true   -> see the absolute point that would be used
+#   4. <tool> for real            -> execute
+desktop:
+  enabled: false
+
+  # -- shared safety knobs --
+  max_actions_per_minute: 60     # 0 = unlimited
+  position_tolerance_px: 2       # how far the AI's window_x/window_y may drift from the real position
+  require_foreground: true       # target window must be the foreground window
+  edge_margin: 1                 # refuse points within N px of the window edge (resize border / close button)
+  confirm_required: false        # true: every write must first be dry_run and replay its plan_token
+  confirm_ttl: 60s               # plan_token lifetime
+  dpi_aware: true                # per-monitor DPI awareness; turning this off misplaces clicks on scaled displays
+  blocked_regions:               # screen rectangles that are never touched
+    - x: 0
+      y: 1040
+      width: 1920
+      height: 40
+      reason: "taskbar / system tray"
+
+  mouse:
+    enabled: true
+    allow_buttons: ["left", "right", "middle"]
+    allow_double_click: true
+    allow_drag: true
+    drag_steps: 20               # interpolated moves per drag
+    drag_duration_ms: 300        # total drag duration; raise it if the target needs a slower drag
+
+  keyboard:
+    # Off by default and intended to stay off until a human reviews the risk:
+    # typing can confirm dialogs, send messages, or trigger irreversible actions.
+    enabled: false
+    require_confirm: true        # once enabled, dry_run + plan_token cannot be bypassed
+    max_text_length: 2000
+
+  screenshot:
+    enabled: true
+    workdir: "./data/desktop"
+    max_width: 1600              # downscale so the AI can still read the text
+    allow_fullscreen: true       # false forbids scope=screen captures

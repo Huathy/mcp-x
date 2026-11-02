@@ -13,6 +13,125 @@ type Config struct {
 	Safety      SafetyConfig       `yaml:"safety"`
 	DataSources []DataSourceConfig `yaml:"datasources"`
 	Docconv     DocconvConfig      `yaml:"docconv"`
+	Desktop     DesktopConfig      `yaml:"desktop"`
+}
+
+// desktopConfigWire mirrors DesktopConfig with pointer bools so an explicit
+// `false` in YAML can be told apart from an omitted key. DpiAware and
+// Screenshot.AllowFullScreen default to true, so they need this distinction.
+type desktopConfigWire struct {
+	Enabled             bool               `yaml:"enabled"`
+	MaxActionsPerMinute int                `yaml:"max_actions_per_minute"`
+	PositionTolerancePx int                `yaml:"position_tolerance_px"`
+	RequireForeground   bool               `yaml:"require_foreground"`
+	EdgeMargin          int                `yaml:"edge_margin"`
+	ConfirmRequired     bool               `yaml:"confirm_required"`
+	ConfirmTTL          Duration           `yaml:"confirm_ttl"`
+	DpiAware            *bool              `yaml:"dpi_aware"`
+	BlockedRegions      []DesktopRegion    `yaml:"blocked_regions"`
+	Mouse               DesktopMouseCfg    `yaml:"mouse"`
+	Keyboard            DesktopKeyboardCfg `yaml:"keyboard"`
+	Screenshot          DesktopShotCfg     `yaml:"screenshot"`
+}
+
+type desktopShotCfgWire struct {
+	Enabled         bool   `yaml:"enabled"`
+	Workdir         string `yaml:"workdir"`
+	MaxWidth        int    `yaml:"max_width"`
+	AllowFullScreen *bool  `yaml:"allow_fullscreen"`
+}
+
+func (s *DesktopShotCfg) UnmarshalYAML(value *yaml.Node) error {
+	var wire desktopShotCfgWire
+	if err := value.Decode(&wire); err != nil {
+		return err
+	}
+	s.Enabled = wire.Enabled
+	s.Workdir = wire.Workdir
+	s.MaxWidth = wire.MaxWidth
+	s.AllowFullScreen = wire.AllowFullScreen == nil || *wire.AllowFullScreen
+	s.fullScreenSeen = wire.AllowFullScreen != nil
+	return nil
+}
+
+func (d *DesktopConfig) UnmarshalYAML(value *yaml.Node) error {
+	var wire desktopConfigWire
+	if err := value.Decode(&wire); err != nil {
+		return err
+	}
+	d.Enabled = wire.Enabled
+	d.MaxActionsPerMinute = wire.MaxActionsPerMinute
+	d.PositionTolerancePx = wire.PositionTolerancePx
+	d.RequireForeground = wire.RequireForeground
+	d.EdgeMargin = wire.EdgeMargin
+	d.ConfirmRequired = wire.ConfirmRequired
+	d.ConfirmTTL = wire.ConfirmTTL
+	// DpiAware and AllowFullScreen default to true, and an explicit `false`
+	// in YAML has to win. applyDefaults fills in the absent case, because it
+	// also runs when the whole `desktop:` block is missing.
+	d.DpiAware = wire.DpiAware == nil || *wire.DpiAware
+	d.dpiAwareSeen = wire.DpiAware != nil
+	d.BlockedRegions = wire.BlockedRegions
+	d.Mouse = wire.Mouse
+	d.Keyboard = wire.Keyboard
+	d.Screenshot = wire.Screenshot
+	return nil
+}
+
+// DesktopConfig controls the Windows desktop control tools. Every sub-capability
+// is opt-in; the whole module stays off unless explicitly enabled.
+type DesktopConfig struct {
+	Enabled             bool               `yaml:"enabled"`
+	MaxActionsPerMinute int                `yaml:"max_actions_per_minute"`
+	PositionTolerancePx int                `yaml:"position_tolerance_px"`
+	RequireForeground   bool               `yaml:"require_foreground"`
+	EdgeMargin          int                `yaml:"edge_margin"`
+	ConfirmRequired     bool               `yaml:"confirm_required"`
+	ConfirmTTL          Duration           `yaml:"confirm_ttl"`
+	DpiAware            bool               `yaml:"dpi_aware"`
+	BlockedRegions      []DesktopRegion    `yaml:"blocked_regions"`
+	Mouse               DesktopMouseCfg    `yaml:"mouse"`
+	Keyboard            DesktopKeyboardCfg `yaml:"keyboard"`
+	Screenshot          DesktopShotCfg     `yaml:"screenshot"`
+
+	// Records whether the key appeared in YAML, so applyDefaults can tell an
+	// omitted `dpi_aware` from an explicit `dpi_aware: false`. Both default to
+	// true, which a plain bool field cannot express.
+	dpiAwareSeen   bool
+	fullScreenSeen bool
+}
+
+// DesktopRegion is a screen rectangle the tools refuse to touch.
+type DesktopRegion struct {
+	X      int    `yaml:"x"`
+	Y      int    `yaml:"y"`
+	Width  int    `yaml:"width"`
+	Height int    `yaml:"height"`
+	Reason string `yaml:"reason"`
+}
+
+type DesktopMouseCfg struct {
+	Enabled          bool     `yaml:"enabled"`
+	AllowButtons     []string `yaml:"allow_buttons"`
+	AllowDoubleClick bool     `yaml:"allow_double_click"`
+	AllowDrag        bool     `yaml:"allow_drag"`
+	DragSteps        int      `yaml:"drag_steps"`
+	DragDurationMs   int      `yaml:"drag_duration_ms"`
+}
+
+type DesktopKeyboardCfg struct {
+	Enabled        bool `yaml:"enabled"`
+	RequireConfirm bool `yaml:"require_confirm"`
+	MaxTextLength  int  `yaml:"max_text_length"`
+}
+
+type DesktopShotCfg struct {
+	Enabled         bool   `yaml:"enabled"`
+	Workdir         string `yaml:"workdir"`
+	MaxWidth        int    `yaml:"max_width"`
+	AllowFullScreen bool   `yaml:"allow_fullscreen"`
+
+	fullScreenSeen bool
 }
 
 type DocconvConfig struct {
@@ -128,6 +247,7 @@ func (c *Config) applyDefaults() {
 	if c.Docconv.Com.Timeout == 0 {
 		c.Docconv.Com.Timeout = Duration(60 * time.Second)
 	}
+	c.Desktop.applyDefaults()
 	for i := range c.DataSources {
 		ds := &c.DataSources[i]
 		if ds.Mode == "" {
@@ -145,6 +265,48 @@ func (c *Config) applyDefaults() {
 		if ds.PoolSize == 0 {
 			ds.PoolSize = 10
 		}
+	}
+}
+
+func (d *DesktopConfig) applyDefaults() {
+	// DpiAware and AllowFullScreen default to true, so the default can only be
+	// applied when the key was absent from YAML. Without the seen flags, an
+	// explicit `false` would be silently flipped back on.
+	if !d.dpiAwareSeen {
+		d.DpiAware = true
+	}
+	if !d.Screenshot.fullScreenSeen {
+		d.Screenshot.AllowFullScreen = true
+	}
+	if d.MaxActionsPerMinute == 0 {
+		d.MaxActionsPerMinute = 60
+	}
+	if d.PositionTolerancePx == 0 {
+		d.PositionTolerancePx = 2
+	}
+	if d.EdgeMargin == 0 {
+		d.EdgeMargin = 1
+	}
+	if d.ConfirmTTL == 0 {
+		d.ConfirmTTL = Duration(60 * time.Second)
+	}
+	if d.Mouse.AllowButtons == nil {
+		d.Mouse.AllowButtons = []string{"left", "right", "middle"}
+	}
+	if d.Mouse.DragSteps == 0 {
+		d.Mouse.DragSteps = 20
+	}
+	if d.Mouse.DragDurationMs == 0 {
+		d.Mouse.DragDurationMs = 300
+	}
+	if d.Keyboard.MaxTextLength == 0 {
+		d.Keyboard.MaxTextLength = 2000
+	}
+	if d.Screenshot.Workdir == "" {
+		d.Screenshot.Workdir = "./data/desktop"
+	}
+	if d.Screenshot.MaxWidth == 0 {
+		d.Screenshot.MaxWidth = 1600
 	}
 }
 

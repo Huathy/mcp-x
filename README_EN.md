@@ -8,6 +8,7 @@ A universal database MCP Server that lets AI coding assistants (kilocode / curso
 
 - **Multiple databases out of the box**: MySQL, PostgreSQL, Dameng, Kingbase, Redis, Elasticsearch, MongoDB, MinIO object storage
 - **Document conversion**: Excel↔Markdown, PDF↔Markdown, DOCX↔Markdown and other format conversions (explicitly enabled via config)
+- **Windows desktop control**: mouse move/click/drag/scroll, keyboard input and screenshots, extending the AI's reach from the browser to the whole desktop (off by default, requires explicit opt-in)
 - **Safety layer**: read-only by default; explicit config required for writes; dangerous keyword interception; DELETE/UPDATE without WHERE blocked; row limit + query timeout; object storage bucket/key validation
 - **stdio transport**, direct local connection for kilocode / cursor
 - **YAML config**, multi-datasource named management, routing by name
@@ -134,6 +135,25 @@ docconv:
   com:
     prog_id: "auto"          # auto = probe Word.Application / kwps / wps
     timeout: 60s
+
+desktop:
+  enabled: false               # off by default, see "Desktop Control" below
+  max_actions_per_minute: 60
+  position_tolerance_px: 2
+  require_foreground: true
+  edge_margin: 1
+  confirm_required: false
+  confirm_ttl: 60s
+  dpi_aware: true
+  mouse:
+    enabled: true
+  keyboard:
+    enabled: false             # requires human review before enabling
+    require_confirm: true
+  screenshot:
+    enabled: true
+    workdir: "./data/desktop"
+    max_width: 1600
 ```
 
 ### 3. Manual Verification

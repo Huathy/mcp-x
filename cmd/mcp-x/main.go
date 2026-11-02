@@ -55,7 +55,7 @@ const helpText = `mcp-x: 通用数据库 MCP Server
   危险命令拦截  : FLUSHALL / FLUSHDB / CONFIG / KEYS 等
   DELETE/UPDATE 缺 WHERE 自动拦截；max_rows + 查询超时保护
 
-工具一览（共 22+8 个，按数据源/功能启用）:
+工具一览（共 30+8+9 个，按数据源/功能启用）:
   通用: db_list, db_ping
   SQL : db_query, db_execute, db_tables, db_schema
   Redis: redis_get/set/del/keys/type/ttl
@@ -64,6 +64,17 @@ const helpText = `mcp-x: 通用数据库 MCP Server
   文档转换(docconv, 需 config.docconv.enabled):
     excel_to_md, md_to_excel, pdf_to_md, docx_to_md, md_to_docx, md_to_pdf
     Windows+Office/WPS: word_to_pdf, pdf_to_word(实验性)
+  桌面控制(desktop, 需 config.desktop.enabled, 仅 Windows):
+    desktop_screen_info, desktop_list_windows
+    desktop_mouse_move, desktop_mouse_click, desktop_mouse_drag, desktop_mouse_scroll
+    desktop_type_text, desktop_key(需再开 desktop.keyboard.enabled)
+    desktop_screenshot
+
+桌面控制说明:
+  默认关闭。启用后 AI 可操作真实鼠标与键盘，因此服务端会做严格校验:
+  AI 传窗口原点 (window_x/window_y) + 窗口内偏移 (mouse_x/mouse_y)，服务端
+  从 Windows 读取真实窗口位置，窗口被移动/最小化/被遮挡/失焦时一律拒绝，
+  并回传拒绝码与修复建议。建议先用 dry_run=true 预演再真实执行。
 
 更多信息: https://github.com/yourname/mcp-x
 `

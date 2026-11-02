@@ -9,14 +9,16 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/yourname/mcp-x/internal/config"
 	"github.com/yourname/mcp-x/internal/datasource"
+	"github.com/yourname/mcp-x/internal/desktop"
 )
 
 type Server struct {
-	server   *mcp.Server
-	mgr      *datasource.Manager
-	logger   *slog.Logger
-	cfg      *config.Config
+	server    *mcp.Server
+	mgr       *datasource.Manager
+	logger    *slog.Logger
+	cfg       *config.Config
 	comProgID string
+	desktop   *desktop.Controller
 }
 
 func NewServer(name, version string, mgr *datasource.Manager, cfg *config.Config, logger *slog.Logger) (*Server, error) {
@@ -52,6 +54,7 @@ func (s *Server) registerTools() error {
 	s.registerDocTools()
 	s.registerObjectTools()
 	s.registerDocconvTools()
+	s.registerDesktopTools()
 
 	return nil
 }

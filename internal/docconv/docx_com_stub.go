@@ -2,15 +2,16 @@
 
 package docconv
 
-// comProbe on non-Windows always returns empty (no COM available).
-func comProbe(progIDHint string) string { return "" }
+// ComProbe on non-Windows always returns empty (no COM available), so the
+// COM-backed tools are never registered.
+func ComProbe(progIDHint string) string { return "" }
 
-// wordToPdfCOM on non-Windows is a stub.
-func wordToPdfCOM(src, dst, progID string, timeoutSec int) error {
+// WordToPdfCOM on non-Windows is a stub.
+func WordToPdfCOM(src, dst, progID string, timeoutSec int) error {
 	return ErrCOMNotAvailable
 }
 
-// pdfToWordCOM on non-Windows is a stub.
-func pdfToWordCOM(src, dst, progID string, timeoutSec int) error {
+// PdfToWordCOM on non-Windows is a stub.
+func PdfToWordCOM(src, dst, progID string, timeoutSec int) error {
 	return ErrCOMNotAvailable
 }

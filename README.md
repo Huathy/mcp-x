@@ -8,6 +8,7 @@
 
 - **多数据库开箱即用**：MySQL、PostgreSQL、达梦、金仓、Redis、Elasticsearch、MongoDB、MinIO 对象存储
 - **文档转换**：Excel↔Markdown、PDF↔Markdown、DOCX↔Markdown 等格式互转（需显式启用）
+- **Windows 桌面控制**：鼠标移动/点击/拖拽/滚轮、键盘输入、截图，把 AI 的操作范围从浏览器扩展到整个桌面（默认关闭，需显式启用）
 - **安全层**：默认只读；写操作需显式配置；危险关键词拦截；DELETE/UPDATE 缺 WHERE 拦截；行数限制 + 查询超时；对象存储 bucket/key 合法性校验
 - **stdio 传输**，kilocode / cursor 本地直连
 - **YAML 配置**，多数据源命名管理，按名称路由
@@ -134,6 +135,25 @@ docconv:
   com:
     prog_id: "auto"          # auto = probe Word.Application / kwps / wps
     timeout: 60s
+
+desktop:
+  enabled: false               # 默认关闭，见下文「桌面控制」
+  max_actions_per_minute: 60
+  position_tolerance_px: 2
+  require_foreground: true
+  edge_margin: 1
+  confirm_required: false
+  confirm_ttl: 60s
+  dpi_aware: true
+  mouse:
+    enabled: true
+  keyboard:
+    enabled: false             # 需人工审核后开启
+    require_confirm: true
+  screenshot:
+    enabled: true
+    workdir: "./data/desktop"
+    max_width: 1600
 ```
 
 ### 3. 手动验证
@@ -164,7 +184,84 @@ docconv:
 
 Windows 下需安装 WPS 或 Microsoft Office；Linux 下需额外配置 LibreOffice。
 
-### 5. 接入 AI 编程助手
+### 5. 桌面控制（可选，仅 Windows）
+
+kilocode 自带的鼠标点击/拖拽只在 Chrome 里生效。开启本模块后，AI 可以操作整个 Windows 桌面：
+原生应用（Excel、ERP 客户端、文件管理器）、非浏览器程序、浏览器无法暴露的原生控件。
+
+**默认关闭**，因为启用后 AI 拥有移动真实鼠标、按下真实按键的能力。
+
+```yaml
+desktop:
+  enabled: true
+  max_actions_per_minute: 60
+  position_tolerance_px: 2     # AI 传的窗口位置与真实位置的最大允许偏差
+  require_foreground: true     # 目标窗口必须是前台窗口
+  edge_margin: 1               # 拒绝距窗口边缘 1px 内的点（避开 resize 边框与关闭按钮）
+  confirm_required: false      # true：所有写操作必须先 dry_run 预演并回传 plan_token
+  blocked_regions:             # 永不触碰的屏幕区域
+    - { x: 0, y: 1040, width: 1920, height: 40, reason: "任务栏" }
+  mouse:
+    enabled: true
+    allow_double_click: true
+    allow_drag: true
+  keyboard:
+    enabled: false             # 需人工审核：输入可直接触发「确定 / 删除 / 发送」
+    require_confirm: true
+  screenshot:
+    enabled: true
+    max_width: 1600
+```
+
+#### 防乱点击：坐标如何被校验
+
+AI **不允许传绝对坐标**。它传的是：
+
+| 参数 | 含义 |
+|------|------|
+| `window_x` / `window_y` | 目标窗口左上角的屏幕坐标 |
+| `mouse_x` / `mouse_y` | 目标点相对该窗口左上角的偏移 |
+
+服务端据此算出绝对坐标，并在执行前跑完一条校验链。**任何一项不通过都不会移动鼠标**：
+
+1. 模块与子能力开关
+2. `safety.mode` 必须为 read-write
+3. 参数完整、非负、类型合法
+4. 每分钟操作次数限流
+5. 目标点不在 `blocked_regions` 内
+6. 按标题查找 OS 真实窗口，0 命中 / 多命中（歧义）都拒绝
+7. 窗口可见、未最小化、尺寸合法
+8. **位置一致性**：AI 传的 `window_x/window_y` 与 OS 返回的真实位置偏差 ≤ `position_tolerance_px`。
+   窗口在 AI 观察之后被移动过，这里就会拦下
+9. 相对坐标落在窗口内部，且距离边缘 ≥ `edge_margin`
+10. 绝对坐标落在虚拟桌面内（支持负坐标多屏）
+11. **屏幕指纹一致**：`desktop_screen_info` 返回的指纹变了（改分辨率、拔显示器）则拒绝
+12. **命中测试**：`WindowFromPoint` 反查该坐标实际命中的顶层窗口，必须就是目标窗口（防遮挡误点）
+13. 目标窗口是前台窗口（`require_foreground`）
+
+拒绝时返回带拒绝码的可操作错误，例如：
+
+```
+桌面操作被拒绝 [DENY_WINDOW_MOVED]：窗口位置已变化，OS 返回 (103,200 800x600)，传入 (100,200)，容差 2px
+  传入位置: (100,200)  实际位置: (103,200 800x600)
+  建议: 重新调用 desktop_list_windows 获取最新坐标后重试
+```
+
+#### 预演与两阶段确认
+
+所有写操作都支持 `dry_run=true`：走完整条校验链，回显将要使用的绝对坐标与命中的窗口，但**不动鼠标**。
+
+配置 `confirm_required: true` 后，写操作必须先 `dry_run` 拿到 `plan_token`，再原样回传才能执行。
+token 用 HMAC-SHA256 签名，并绑定工具名、全部参数、屏幕指纹与过期时间，因此不可挪用、不可跨工具复用、
+屏幕一变就失效。`desktop_type_text` / `desktop_key` 在键盘能力开启后强制走这条流程。
+
+#### 运行环境要求
+
+- 必须在**交互式桌面会话（Session 1）**中运行；作为 Windows 服务（Session 0）运行拿不到窗口列表
+- mcp-x 与目标程序需处于**相同权限级别**；以管理员运行的窗口会拒绝非管理员进程的输入注入
+- 高 DPI 缩放屏幕依赖 `dpi_aware: true`，否则坐标整体偏移
+
+### 6. 接入 AI 编程助手
 
 #### kilocode
 
@@ -201,7 +298,7 @@ Windows 下需安装 WPS 或 Microsoft Office；Linux 下需额外配置 LibreOf
 
 ## 工具列表
 
-共 30 个工具：
+共 39 个工具（桌面控制 9 个默认关闭，仅 Windows 注册）：
 
 ### 通用工具
 
@@ -239,6 +336,22 @@ Windows 下需安装 WPS 或 Microsoft Office；Linux 下需额外配置 LibreOf
 | `doc_get` | 按 ID 获取文档 |
 | `doc_index` | 索引/插入文档 |
 | `doc_delete` | 删除文档 |
+
+### 桌面控制工具（desktop，仅 Windows）
+
+需 `desktop.enabled: true`。AI 传窗口原点 + 窗口内偏移，服务端从 Windows 读取真实窗口做交叉校验。
+
+| 工具 | 说明 |
+|------|------|
+| `desktop_screen_info` | 屏幕分辨率、虚拟桌面、各显示器 DPI、当前鼠标位置、屏幕指纹、各能力开关 |
+| `desktop_list_windows` | 可见顶层窗口（标题/类名/矩形/进程/前台标记），供后续调用取坐标 |
+| `desktop_mouse_move` | 移动鼠标到窗口内某点（不点击） |
+| `desktop_mouse_click` | 点击，支持 left/right/middle × 单击/双击 |
+| `desktop_mouse_drag` | 同窗口内拖拽，插值移动；起终点都走校验 |
+| `desktop_mouse_scroll` | 滚轮，up/down/left/right |
+| `desktop_type_text` | 输入 Unicode 文本（含中文）。**默认关闭**，开启后强制两阶段确认 |
+| `desktop_key` | 按下白名单按键 + 可选 Ctrl/Alt/Shift。不接受任意组合键字符串 |
+| `desktop_screenshot` | 全屏 / 窗口 / 区域截图，PNG；可内联返回图片 |
 
 ### 对象存储工具（MinIO / S3 兼容）
 
@@ -308,6 +421,9 @@ datasources:
 | Elasticsearch 注入 | 查询与文档体 JSON 格式校验 |
 | 对象存储路径穿越 | bucket/key 合法性校验 + bucket 白名单 |
 | MongoDB 通配符滥用 | Keys 搜索支持 glob 通配符，防止全集合扫描 |
+| AI 误点桌面 | 窗口位置交叉校验 + 命中测试 + 焦点校验 + 屏幕指纹 + 禁点区域 + 限流，详见「桌面控制」 |
+| 键盘误输入不可逆操作 | `desktop.keyboard.enabled` 默认关闭；开启后强制 dry_run + plan_token 两阶段 |
+| 桌面操作失控 | `max_actions_per_minute` 滑动窗口限流；每次调用写结构化审计日志 |
 
 安全层调用链：
 
@@ -319,6 +435,8 @@ tool handler
   -> driver.Query/Execute(ctxWithTimeout)     # 超时控制
   -> 对象存储 bucket/key 合法性校验
   -> MinIO 对象大小限制（1MB）
+  -> 桌面控制：13 步校验链（开关/安全模式/限流/禁点区/窗口身份/窗口状态/
+     位置一致性/窗口内边界/屏幕边界/屏幕指纹/命中测试/焦点/token）
 ```
 
 ## 测试环境
@@ -407,11 +525,23 @@ mcp-x/
 │   ├── datasource/             # 数据源管理器
 │   ├── safety/                 # 安全层
 │   ├── docconv/                # 文档转换模块
+│   ├── desktop/                # Windows 桌面控制（校验链 + Win32 后端）
 │   └── mcp/                    # MCP server + 工具 handler
 ├── examples/                   # 配置示例
 ├── docs/                       # 设计文档
 └── Makefile
 ```
+
+## 扩展桌面控制
+
+`internal/desktop` 分为两层：
+
+- `desktop.go` / `actions.go` / `screenshot.go` — **平台无关**：类型、13 步校验链、限流、plan_token。
+  这一层不碰任何 Win32 调用，因此可以用 fake `Backend` 做完整单测（`desktop_test.go`）
+- `backend_windows.go` / `backend_other.go` — **平台相关**：`Backend` 接口的 user32/gdi32 实现与 stub
+
+新增一种输入设备时，实现 `Backend` 的对应方法并在 `actions.go` 加一层校验即可；
+`Backend` 接口本身就是跨平台抽象，将来支持 macOS/Linux 只需再加一个 `backend_*.go`。
 
 ## 扩展新数据库
 
@@ -445,8 +575,9 @@ make clean     # 清理
 ### 测试覆盖
 
 - 8 个 Driver（MySQL、PostgreSQL、金仓、达梦、Redis、Elasticsearch、MongoDB、MinIO）
-- 30 个 MCP 工具
-- 66 条测试用例（含文档转换 22 条）
+- 39 个 MCP 工具（桌面控制 9 个需显式启用且仅 Windows 注册）
+- 66 条集成测试用例（含文档转换 22 条）
+- 桌面控制 70 条单元测试（校验链全拒绝路径 + Win32 结构布局断言）
 
 ## 路线图
 
@@ -455,6 +586,7 @@ make clean     # 清理
 | v0.1.0 | MySQL + Redis + 安全层，stdio 传输 ✅ |
 | v0.2.0 | PostgreSQL、达梦、金仓、Elasticsearch、MinIO、MongoDB 支持 ✅ |
 | v0.3.0 | 文档转换模块（Excel↔Markdown、PDF↔Markdown、DOCX↔Markdown）✅ |
+| v0.3.1 | Windows 桌面控制模块（鼠标/键盘/截图，严格校验防误点）✅ |
 | v0.4.0 | HTTP/SSE 传输、连接池监控、慢查询日志 |
 | v0.5.0 | 审计日志、更多国产数据库支持 |
 
